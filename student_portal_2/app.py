@@ -420,7 +420,7 @@ def show_courses_and_faculty():
 def show_student_dashboard():
     st.header("Student Dashboard")
     
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(["Courses", "Timetable", "Assignments", "Course Materials", "Chat"])
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["Courses", "Timetable", "Assignments", "Course Materials", "Chat", "Notifications"])
     
     with tab1:
         show_enrolled_courses()
@@ -436,6 +436,8 @@ def show_student_dashboard():
     
     with tab5:
         show_chat()
+    with tab6:
+        show_notifications()
 
 def show_enrolled_courses():
     st.subheader("Enrolled Courses")
@@ -459,46 +461,6 @@ def show_timetable():
     st.write("Embed Google Calendar here")
     st.components.v1.iframe("https://calendar.google.com/calendar/embed?src=your_calendar_id", height=600)
 
-# def show_assignments():
-#     st.subheader("Assignments")
-#     conn = get_db_connection()
-#     cursor = conn.cursor(dictionary=True)
-#     cursor.execute("""
-#         SELECT a.assignment_id, a.title, a.description, a.deadline, c.course_name, a.file_path,
-#                COALESCE(s.submission_id, 0) as submitted, s.grade, s.feedback
-#         FROM assignments a
-#         JOIN courses c ON a.course_id = c.course_id
-#         JOIN student_courses sc ON c.course_id = sc.course_id
-#         LEFT JOIN assignment_submissions s ON a.assignment_id = s.assignment_id AND s.student_id = sc.srn
-#         WHERE sc.srn = %s
-#         ORDER BY a.deadline
-#     """, (st.session_state.user['user_id'],))
-#     assignments = cursor.fetchall()
-#     cursor.close()
-#     conn.close()
-
-#     for assignment in assignments:
-#         with st.expander(f"{assignment['title']} - {assignment['course_name']}"):
-#             st.write(f"**Description:** {assignment['description']}")
-#             st.write(f"**Deadline:** {assignment['deadline']}")
-            
-#             if assignment['submitted']:
-#                 st.write("**Status:** Submitted")
-#                 if assignment['grade'] is not None:
-#                     st.write(f"**Grade:** {assignment['grade']}")
-#                     st.write(f"**Feedback:** {assignment['feedback']}")
-#                 else:
-#                     st.write("**Status:** Grading in progress")
-#             else:
-#                 st.write("**Status:** Not submitted")
-#                 # if assignment['is_google_form']:
-#                 #     # st.write(f"**Google Form Link:** {assignment['file_path']}")
-#                 st.markdown(f"[Submit Assignment]({assignment['file_path']})")
-               
-#                 uploaded_file = st.file_uploader(f"Upload your assignment for {assignment['title']}", key=f"assignment_{assignment['assignment_id']}")
-#                 if uploaded_file is not None:
-#                     if st.button(f"Submit {assignment['title']}", key=f"submit_{assignment['assignment_id']}"):
-#                         submit_assignment(assignment['assignment_id'], uploaded_file)
     
 
 def show_assignments():
@@ -946,6 +908,7 @@ def upload_assignment():
             """, (course['course_id'], title, description, deadline, file_path))
             
             # Create notifications for students
+                        # Create notifications for students
             cursor.execute("""
                 INSERT INTO notifications (user_id, message)
                 SELECT sc.srn, %s
@@ -962,6 +925,61 @@ def upload_assignment():
             cursor.close()
             conn.close()
 
+def show_notifications():
+    st.subheader("Notifications")
+    
+    conn = get_db_connection()
+    if not conn:
+        st.error("Failed to connect to the database.")
+        return
+
+    try:
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("""
+            SELECT message, created_at, is_read
+            FROM notifications
+            WHERE user_id = %s
+            ORDER BY created_at DESC
+        """, (st.session_state.user['user_id'],))
+        notifications = cursor.fetchall()
+
+        if not notifications:
+            st.info("No notifications.")
+        else:
+            for notification in notifications:
+                with st.expander(f"Notification from {notification['created_at']}"):
+                    st.write(notification['message'])
+                    if not notification['is_read']:
+                        if st.button("Mark as Read", key=f"mark_read_{notification['created_at']}"):
+                            mark_notification_as_read(notification['created_at'])
+                            st.rerun()
+
+    except Error as e:
+        st.error(f"An error occurred: {e}")
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+def mark_notification_as_read(created_at):
+    conn = get_db_connection()
+    if not conn:
+        return
+
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE notifications
+            SET is_read = TRUE
+            WHERE user_id = %s AND created_at = %s
+        """, (st.session_state.user['user_id'], created_at))
+        conn.commit()
+    except Error as e:
+        st.error(f"Error marking notification as read: {e}")
+    finally:
+        cursor.close()
+        conn.close()
 
 # Update the view_enrolled_students function in the faculty dashboard
 def view_enrolled_students():
